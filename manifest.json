@@ -1,0 +1,9 @@
+{
+  "id": "image-toolkit-fix",
+  "name": "Image Toolkit Fix",
+  "version": "1.0.0",
+  "minAppVersion": "1.0.0",
+  "description": "Fixes obsidian-image-toolkit for editor view clicks and non-English locales",
+  "author": "rodmera",
+  "isDesktopOnly": true
+}
