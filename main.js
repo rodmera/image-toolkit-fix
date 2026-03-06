@@ -43,9 +43,12 @@ class ImageToolkitFixPlugin extends obsidian.Plugin {
             if (!el) return;
 
             // Find the actual img element (in editor, click lands on the embed DIV, not the img)
-            let imgEl = el.tagName === 'IMG' ? el : (el.querySelector && el.querySelector('img'));
-            if (!imgEl && el.closest) {
-                const embed = el.closest('.internal-embed,.image-embed,.cm-embed-block');
+            let imgEl = null;
+            if (el.tagName === 'IMG') {
+                imgEl = el;
+            } else if (el.closest) {
+                // Only match actual image embeds, not Dataview/Excalidraw/other embed blocks
+                const embed = el.closest('.internal-embed.image-embed');
                 if (embed) imgEl = embed.querySelector('img');
             }
             if (!imgEl) return;
