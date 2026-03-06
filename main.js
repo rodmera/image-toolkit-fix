@@ -34,7 +34,6 @@ function calculateImgZoomSize(realWidth, realHeight, imgCto, windowWidth, window
 }
 
 function doFullRender(container, imgCto, imgSrc, imgAlt) {
-    var _a, _b;
     const parentEl = container.parentContainerEl;
     const w = parentEl ? parentEl.clientWidth : undefined;
     const h = parentEl ? parentEl.clientHeight : undefined;
@@ -51,8 +50,8 @@ class ImageToolkitFixPlugin extends obsidian.Plugin {
     onload() {
         this._patchConsoleError();
         this.app.workspace.onLayoutReady(() => {
+            this._patchToolkitContainers();
             this._registerEditorClickFix();
-            this._patchRefreshImg();
             this._registerNavigationCleanup();
         });
     }
@@ -77,38 +76,40 @@ class ImageToolkitFixPlugin extends obsidian.Plugin {
         };
     }
 
-    _patchRefreshImg() {
+    // Single place to patch all container methods (refreshImg + closeContainerView)
+    _patchToolkitContainers() {
         const toolkit = this.app.plugins.plugins['obsidian-image-toolkit'];
         if (!toolkit || !toolkit.containerFactory) return;
 
         const self = this;
+
+        // Patch existing containers
+        const allContainers = toolkit.containerFactory.getAllContainers();
+        for (const c of allContainers) {
+            this._patchContainer(c);
+        }
+
+        // Wrap getContainer to patch future containers on first access
         const origGetContainer = toolkit.containerFactory.getContainer.bind(toolkit.containerFactory);
         toolkit.containerFactory.getContainer = function (targetEl) {
             const container = origGetContainer(targetEl);
-            if (container && !container._refreshImgPatched) {
-                self._wrapRefreshImg(container);
-            }
+            if (container) self._patchContainer(container);
             return container;
         };
-
-        // Also patch any already-existing containers
-        const allContainers = toolkit.containerFactory.getAllContainers();
-        for (const c of allContainers) {
-            if (c && !c._refreshImgPatched) {
-                this._wrapRefreshImg(c);
-            }
-        }
     }
 
-    _wrapRefreshImg(container) {
-        container._refreshImgPatched = true;
-        const origRefreshImg = container.refreshImg;
+    _patchContainer(container) {
+        if (!container || container._itfPatched) return;
+        container._itfPatched = true;
 
+        const self = this;
+
+        // Patch refreshImg: add onerror + retry timeout fallback
+        const origRefreshImg = container.refreshImg;
         container.refreshImg = function (imgCto, imgSrc, imgAlt, imgTitleIndex) {
             if (!imgSrc) imgSrc = imgCto.imgViewEl.src;
             if (!imgAlt) imgAlt = imgCto.imgViewEl.alt;
             container.renderImgTitle(imgAlt, imgTitleIndex);
-
             if (!imgSrc) return;
 
             if (imgCto.refreshImgInterval) {
@@ -124,7 +125,6 @@ class ImageToolkitFixPlugin extends obsidian.Plugin {
                     clearInterval(imgCto.refreshImgInterval);
                     imgCto.refreshImgInterval = null;
                 }
-                // Fallback to original element's natural dimensions
                 const origEl = imgCto.targetOriginalImgEl;
                 if (origEl && origEl.naturalWidth > 0) {
                     imgCto._fallbackWidth = origEl.naturalWidth;
@@ -143,7 +143,6 @@ class ImageToolkitFixPlugin extends obsidian.Plugin {
                     imgCto._fallbackHeight = realImg.height;
                     doFullRender(container, imgCto, imgSrc, imgAlt);
                 } else if (++retryCount > 50) {
-                    // Timeout after ~2s — fallback to original element
                     clearInterval(imgCto.refreshImgInterval);
                     imgCto.refreshImgInterval = null;
                     const origEl = imgCto.targetOriginalImgEl;
@@ -155,6 +154,26 @@ class ImageToolkitFixPlugin extends obsidian.Plugin {
                 }
             }, 40, realImg);
         };
+
+        // Patch close handlers: refocus editor after overlay closes
+        const origClose = container.closeContainerView.bind(container);
+        container.closeContainerView = function (event, activeImg) {
+            origClose(event, activeImg);
+            setTimeout(() => self._refocusEditor(), 50);
+        };
+
+        const origRemove = container.removeOitContainerView.bind(container);
+        container.removeOitContainerView = function () {
+            origRemove();
+            setTimeout(() => self._refocusEditor(), 50);
+        };
+    }
+
+    _refocusEditor() {
+        const leaf = this.app.workspace.activeLeaf;
+        if (leaf && leaf.view && leaf.view.editor) {
+            leaf.view.editor.focus();
+        }
     }
 
     _registerNavigationCleanup() {
@@ -189,7 +208,6 @@ class ImageToolkitFixPlugin extends obsidian.Plugin {
             if (el.tagName === 'IMG') {
                 imgEl = el;
             } else if (el.closest) {
-                // Match image embed containers (wiki-links and external markdown images)
                 const embed = el.closest('.image-embed');
                 if (embed) imgEl = embed.querySelector('img');
             }
