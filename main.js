@@ -53,6 +53,7 @@ class ImageToolkitFixPlugin extends obsidian.Plugin {
         this.app.workspace.onLayoutReady(() => {
             this._registerEditorClickFix();
             this._patchRefreshImg();
+            this._registerNavigationCleanup();
         });
     }
 
@@ -154,6 +155,21 @@ class ImageToolkitFixPlugin extends obsidian.Plugin {
                 }
             }, 40, realImg);
         };
+    }
+
+    _registerNavigationCleanup() {
+        this.registerEvent(
+            this.app.workspace.on('active-leaf-change', () => {
+                const toolkit = this.app.plugins.plugins['obsidian-image-toolkit'];
+                if (!toolkit || !toolkit.containerFactory) return;
+                const containers = toolkit.containerFactory.getAllContainers();
+                for (const c of containers) {
+                    if (c && c.imgGlobalStatus && c.imgGlobalStatus.popup) {
+                        c.removeOitContainerView();
+                    }
+                }
+            })
+        );
     }
 
     _registerEditorClickFix() {
