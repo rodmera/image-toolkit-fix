@@ -173,21 +173,9 @@ class ImageToolkitFixPlugin extends obsidian.Plugin {
             if (el.tagName === 'IMG') {
                 imgEl = el;
             } else if (el.closest) {
-                // Case 1: Obsidian wiki-link embeds (![[image.png]])
-                const embed = el.closest('.internal-embed.image-embed');
-                if (embed) {
-                    imgEl = embed.querySelector('img');
-                }
-                // Case 2: External markdown images (![](url)) — check direct children
-                // to avoid catching images deep inside Dataview/Excalidraw blocks
-                if (!imgEl && el.children) {
-                    for (const child of el.children) {
-                        if (child.tagName === 'IMG') {
-                            imgEl = child;
-                            break;
-                        }
-                    }
-                }
+                // Match image embed containers (wiki-links and external markdown images)
+                const embed = el.closest('.image-embed');
+                if (embed) imgEl = embed.querySelector('img');
             }
             if (!imgEl) return;
 
