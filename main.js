@@ -7,6 +7,7 @@ class ImageToolkitFixPlugin extends obsidian.Plugin {
         this._patchConsoleError();
         this.app.workspace.onLayoutReady(() => {
             this._registerEditorClickFix();
+            this._patchRefreshImg();
         });
     }
 
@@ -27,6 +28,59 @@ class ImageToolkitFixPlugin extends obsidian.Plugin {
                 return;
             }
             orig.apply(console, args);
+        };
+    }
+
+    _patchRefreshImg() {
+        const toolkit = this.app.plugins.plugins['obsidian-image-toolkit'];
+        if (!toolkit || !toolkit.containerFactory) return;
+
+        // Wrap getContainer to patch each container's refreshImg on first access
+        const origGetContainer = toolkit.containerFactory.getContainer.bind(toolkit.containerFactory);
+        const self = this;
+        toolkit.containerFactory.getContainer = function (targetEl) {
+            const container = origGetContainer(targetEl);
+            if (container && !container._refreshImgPatched) {
+                self._wrapRefreshImg(container);
+            }
+            return container;
+        };
+    }
+
+    _wrapRefreshImg(container) {
+        container._refreshImgPatched = true;
+        const origRefreshImg = container.refreshImg;
+
+        container.refreshImg = function (imgCto, imgSrc, imgAlt, imgTitleIndex) {
+            // Call the original refreshImg
+            origRefreshImg(imgCto, imgSrc, imgAlt, imgTitleIndex);
+
+            // Add a safety timeout: if after 2.5s the interval is still running,
+            // the image probably failed to load — force render using the original element
+            setTimeout(() => {
+                if (imgCto.refreshImgInterval) {
+                    clearInterval(imgCto.refreshImgInterval);
+                    imgCto.refreshImgInterval = null;
+
+                    const src = imgSrc || imgCto.imgViewEl.src;
+                    const alt = imgAlt || imgCto.imgViewEl.alt;
+                    const origEl = imgCto.targetOriginalImgEl;
+
+                    if (origEl && origEl.naturalWidth > 0) {
+                        // Directly set the image and show it — skip zoom calculation
+                        imgCto.imgViewEl.src = src;
+                        imgCto.imgViewEl.alt = alt;
+                        imgCto.imgViewEl.style.setProperty('max-width', '100%');
+                        imgCto.imgViewEl.style.setProperty('max-height', '100%');
+                    }
+
+                    container.renderImgView(imgCto.imgViewEl, src, alt);
+                    container.renderImgTip(imgCto);
+                    imgCto.imgViewEl.style.setProperty('transform', imgCto.defaultImgStyle.transform);
+                    imgCto.imgViewEl.style.setProperty('filter', imgCto.defaultImgStyle.filter);
+                    imgCto.imgViewEl.style.setProperty('mix-blend-mode', imgCto.defaultImgStyle.mixBlendMode);
+                }
+            }, 2500);
         };
     }
 
